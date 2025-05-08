@@ -1,6 +1,9 @@
+import deasync from "deasync"
 import { type APIBasePayload, Endpoints } from "@ifunny/ifunny-api-types";
 import type { Client } from "../client/Client";
 import type { Nullify } from "../utils/Types";
+
+type Fetchable<T> = Partial<T> & APIBasePayload;
 
 /**
  * Base class for all structures.
@@ -15,7 +18,12 @@ export class Base<Payload extends APIBasePayload> {
 	/**
 	 * The payload of the object.
 	 */
-	#payload: Payload;
+	#payload: Fetchable<Payload>;
+
+	/**
+	 * Whether this object has deliberately fetched its payload
+	 */
+	#fetched: boolean = false;
 
 	/**
 	 * Endpoint url the object will request to
@@ -26,7 +34,7 @@ export class Base<Payload extends APIBasePayload> {
 	 * @param client The client instance
 	 * @param payload The payload of the object
 	 */
-	public constructor(client: Client, payload: Payload) {
+	public constructor(client: Client, payload: Fetchable<Payload>) {
 		this.#client = client;
 		this.#payload = payload;
 	}
@@ -41,7 +49,7 @@ export class Base<Payload extends APIBasePayload> {
 	/**
 	 * Get the payload of the object
 	 */
-	public get payload(): Payload {
+	public get payload(): Fetchable<Payload> {
 		return this.#payload;
 	}
 
@@ -71,6 +79,7 @@ export class Base<Payload extends APIBasePayload> {
 	 */
 	public async fetch(): Promise<this> {
 		const response = await this.client.instance.get(this.endpointUrl);
+		this.#fetched = true;
 		return (this.payload = response.data.data);
 	}
 
@@ -81,7 +90,13 @@ export class Base<Payload extends APIBasePayload> {
 	 */
 	protected get<P extends Payload, K extends keyof P>(key: K): Nullify<P[K]> {
 		// @ts-ignore
-		return (this.payload[key] ?? null) as Nullify<P[K]>;
+		const v = this.payload[key];
+		if (v === undefined && !this.#fetched) {
+			deasync(this.fetch)();
+			return this.get(key);
+		}
+
+		return (v ?? null) as Nullify<P[K]>;
 	}
 
 	/**
